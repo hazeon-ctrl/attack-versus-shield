@@ -122,24 +122,32 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    // Set canvas size
+    // Set canvas size and responsive positioning
     function resizeCanvas() {
         canvas.width = Math.min(window.innerWidth - 20, 900);
         canvas.height = Math.min(window.innerHeight - 200, 600);
 
+        // Calculate responsive positioning based on canvas width
+        const minDistance = 240; // Minimum distance between emojis
+        const padding = Math.max(80, canvas.width * 0.12); // 12% padding or 80px minimum
+
+        // Ensure there's always enough space for projectiles to be visible
+        const availableWidth = canvas.width - (padding * 2);
+        const actualDistance = Math.max(minDistance, availableWidth);
+
         // Update positions when canvas resizes
         if (gameState) {
-            gameState.player.x = 120;
+            gameState.player.x = padding;
             gameState.player.y = canvas.height / 2;
-            gameState.enemy.x = canvas.width - 120;
+            gameState.enemy.x = canvas.width - padding;
             gameState.enemy.y = canvas.height / 2;
         }
     }
 
-    // Game state
+    // Game state with responsive initial positions
     let gameState = {
         player: {
-            x: 120,
+            x: 120, // Will be updated by resizeCanvas()
             y: 300,
             hp: 100,
             maxHp: 100,
@@ -148,7 +156,7 @@
             shootCooldown: 500
         },
         enemy: {
-            x: 780,
+            x: 780, // Will be updated by resizeCanvas()
             y: 300,
             hp: 100,
             maxHp: 100,
@@ -207,7 +215,7 @@
         shieldBtn.classList.remove('pressed');
     }
 
-    // Shooting function
+    // Shooting function with responsive projectile spawn
     function shoot(shooter) {
         const now = Date.now();
         const entity = gameState[shooter];
@@ -219,12 +227,15 @@
         // Play shooting sound effect
         playShootSound(shooter);
 
+        // Calculate spawn distance based on canvas width (responsive)
+        const spawnDistance = Math.max(60, canvas.width * 0.08); // 8% of canvas width or 60px minimum
+
         const projectile = {
-            x: shooter === 'player' ? entity.x + 80 : entity.x - 80,
+            x: shooter === 'player' ? entity.x + spawnDistance : entity.x - spawnDistance,
             y: entity.y,
-            dx: shooter === 'player' ? 7 : -7,
+            dx: shooter === 'player' ? Math.max(5, canvas.width * 0.008) : -Math.max(5, canvas.width * 0.008),
             owner: shooter,
-            size: 15
+            size: Math.max(12, canvas.width * 0.015) // Responsive projectile size
         };
 
         gameState.projectiles.push(projectile);
@@ -507,11 +518,14 @@
         // === SYNTHETIC SOUND CODE ENDS HERE ===
     }
 
-    // Restart game
+    // Restart game with responsive positioning
     document.getElementById('restartBtn').addEventListener('click', () => {
+        // Calculate responsive positions
+        const padding = Math.max(80, canvas.width * 0.12);
+
         gameState = {
             player: {
-                x: 120,
+                x: padding,
                 y: canvas.height / 2,
                 hp: 100,
                 maxHp: 100,
@@ -520,7 +534,7 @@
                 shootCooldown: 500
             },
             enemy: {
-                x: canvas.width - 120,
+                x: canvas.width - padding,
                 y: canvas.height / 2,
                 hp: 100,
                 maxHp: 100,
