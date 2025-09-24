@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emoji Fighter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+        }
+
+        .control-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 3px solid white;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:active {
+            transform: scale(0.9);
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .control-btn.pressed {
+            background: rgba(255, 255, 255, 0.5);
+            box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        #gameInfo {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #gameOver {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            display: none;
+        }
+
+        #restartBtn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+<div id="gameInfo">
+    <div>Player HP: <span id="playerHP">100</span> | Enemy HP: <span id="enemyHP">100</span></div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="controls">
+    <button class="control-btn" id="shootBtn">🔥</button>
+    <button class="control-btn" id="shieldBtn">🛡️</button>
+</div>
+
+<div id="gameOver">
+    <h2 id="gameOverText">Game Over</h2>
+    <button id="restartBtn">Play Again</button>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Set canvas size
+    function resizeCanvas() {
+        canvas.width = Math.min(window.innerWidth - 20, 900);
+        canvas.height = Math.min(window.innerHeight - 200, 600);
+
+        // Update positions when canvas resizes
+        if (gameState) {
+            gameState.player.x = 120;
+            gameState.player.y = canvas.height / 2;
+            gameState.enemy.x = canvas.width - 120;
+            gameState.enemy.y = canvas.height / 2;
+        }
+    }
+
+    // Game state
+    let gameState = {
+        player: {
+            x: 120,
+            y: 300,
+            hp: 100,
+            maxHp: 100,
+            isShielding: false,
+            lastShot: 0,
+            shootCooldown: 500
+        },
+        enemy: {
+            x: 780,
+            y: 300,
+            hp: 100,
+            maxHp: 100,
+            isShielding: false,
+            lastShot: 0,
+            shootCooldown: 1200,
+            nextAction: 0,
+            actionTimer: 0,
+            playerShieldStartTime: 0
+        },
+        projectiles: [],
+        gameRunning: true,
+        gameTime: 0
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Controls
+    const shootBtn = document.getElementById('shootBtn');
+    const shieldBtn = document.getElementById('shieldBtn');
+
+    shootBtn.addEventListener('touchstart', handleShoot);
+    shootBtn.addEventListener('mousedown', handleShoot);
+
+    shieldBtn.addEventListener('touchstart', startShield);
+    shieldBtn.addEventListener('touchend', endShield);
+    shieldBtn.addEventListener('mousedown', startShield);
+    shieldBtn.addEventListener('mouseup', endShield);
+
+    // Prevent context menu on long press
+    document.addEventListener('contextmenu', e => e.preventDefault());
+
+    function handleShoot(e) {
+        e.preventDefault();
+        if (!gameState.player.isShielding && gameState.gameRunning) {
+            shoot('player');
+        }
+    }
+
+    function startShield(e) {
+        e.preventDefault();
+        if (gameState.gameRunning) {
+            if (!gameState.player.isShielding) {
+                gameState.enemy.playerShieldStartTime = Date.now();
+            }
+            gameState.player.isShielding = true;
+            shieldBtn.classList.add('pressed');
+        }
+    }
+
+    function endShield(e) {
+        e.preventDefault();
+        gameState.player.isShielding = false;
+        gameState.enemy.playerShieldStartTime = 0;
+        shieldBtn.classList.remove('pressed');
+    }
+
+    // Shooting function
+    function shoot(shooter) {
+        const now = Date.now();
+        const entity = gameState[shooter];
+
+        if (now - entity.lastShot < entity.shootCooldown) return;
+
+        entity.lastShot = now;
+
+        // Play shooting sound effect
+        playShootSound(shooter);
+
+        const projectile = {
+            x: shooter === 'player' ? entity.x + 80 : entity.x - 80,
+            y: entity.y,
+            dx: shooter === 'player' ? 7 : -7,
+            owner: shooter,
+            size: 15
+        };
+
+        gameState.projectiles.push(projectile);
+    }
+
+    // Sound effect functions
+    function playShootSound(shooter) {
+        // You can use Web Audio API or HTML5 Audio
+        // Option 1: Simple beep using Web Audio API
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        // Different frequencies for player vs enemy
+        oscillator.frequency.setValueAtTime(shooter === 'player' ? 800 : 400, audioContext.currentTime);
+        oscillator.type = 'square';
+
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+
+        // Option 2: If you have audio files, use this instead:
+        // const audio = new Audio(shooter === 'player' ? 'player-shoot.wav' : 'enemy-shoot.wav');
+        // audio.volume = 0.3;
+        // audio.play().catch(e => console.log('Audio play failed:', e));
+    }
+
+    function playHitSound(whoGotHit) {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        // Different hit sounds for player vs enemy
+        if (whoGotHit === 'player') {
+            // Player hit - lower, more ominous sound
+            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
+        } else {
+            // Enemy hit - higher, more satisfying sound
+            oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(300, audioContext.currentTime + 0.15);
+        }
+
+        oscillator.type = 'sawtooth';
+        gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.2);
+    }
+
+    function playBlockSound() {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        // Sharp, metallic shield block sound
+        oscillator.frequency.setValueAtTime(1200, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.1);
+        oscillator.type = 'triangle';
+
+        gainNode.gain.setValueAtTime(0.12, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    }
+
+    // Simple but effective Enemy AI
+    function updateEnemyAI() {
+        const enemy = gameState.enemy;
+        const now = Date.now();
+
+        // Calculate dynamic shoot cooldown based on player shield time
+        let baseCooldown = 1200;
+        if (gameState.player.isShielding && enemy.playerShieldStartTime > 0) {
+            const shieldDuration = now - enemy.playerShieldStartTime;
+            // Reduce cooldown more the longer player shields (minimum 400ms)
+            const aggressionMultiplier = Math.max(0.3, 1 - (shieldDuration / 3000));
+            baseCooldown = baseCooldown * aggressionMultiplier;
+        }
+
+        // Enemy shoots with dynamic frequency
+        if (now - enemy.lastShot > baseCooldown && !enemy.isShielding) {
+            let shootChance = 0.6;
+            // Increase shoot chance if player is shielding for a while
+            if (gameState.player.isShielding && enemy.playerShieldStartTime > 0) {
+                const shieldDuration = now - enemy.playerShieldStartTime;
+                shootChance = Math.min(0.95, 0.6 + (shieldDuration / 2000));
+            }
+
+            if (Math.random() < shootChance) {
+                shoot('enemy');
+            }
+        }
+
+        // Random shield behavior - 37% chance when not already shielding
+        if (!enemy.isShielding && Math.random() < 0.0015) {
+            enemy.isShielding = true;
+            setTimeout(() => {
+                enemy.isShielding = false;
+            }, 500 + Math.random() * 400); // Shield for 500-900ms
+        }
+
+        // Increase aggression over time
+        if (gameState.gameTime > 10000) {
+            baseCooldown = Math.max(400, baseCooldown - 1);
+        }
+    }
+
+    // Update projectiles
+    function updateProjectiles() {
+        gameState.projectiles = gameState.projectiles.filter(proj => {
+            proj.x += proj.dx;
+
+            // Check bounds
+            if (proj.x < 0 || proj.x > canvas.width) return false;
+
+            // Check collisions
+            const target = proj.owner === 'player' ? gameState.enemy : gameState.player;
+            const distance = Math.sqrt((proj.x - target.x) ** 2 + (proj.y - target.y) ** 2);
+
+            if (distance < 70) {
+                if (!target.isShielding) {
+                    target.hp = Math.max(0, target.hp - 20);
+                    // Play hit sound effect
+                    playHitSound(proj.owner === 'player' ? 'enemy' : 'player');
+                    console.log(`${proj.owner === 'player' ? 'Enemy' : 'Player'} hit! HP: ${target.hp}`);
+                    if (target.hp <= 0) {
+                        endGame(proj.owner === 'player' ? 'You Win! 🎉' : 'Game Over! 💀');
+                    }
+                } else {
+                    // Play shield block sound effect
+                    playBlockSound();
+                    console.log(`${proj.owner === 'player' ? 'Enemy' : 'Player'} blocked the attack!`);
+                }
+                return false; // Remove projectile after hit
+            }
+
+            return true;
+        });
+    }
+
+    // Rendering
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw battle line in middle
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 50);
+        ctx.lineTo(canvas.width / 2, canvas.height - 50);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw player
+        ctx.font = '80px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(gameState.player.isShielding ? '🛡️' : '😎', gameState.player.x, gameState.player.y + 25);
+
+        // Draw enemy
+        ctx.fillText(gameState.enemy.isShielding ? '🛡️' : '👹', gameState.enemy.x, gameState.enemy.y + 25);
+
+        // Draw health bars
+        drawHealthBar(gameState.player.x - 40, gameState.player.y - 60, gameState.player.hp, gameState.player.maxHp, '#4CAF50');
+        drawHealthBar(gameState.enemy.x - 40, gameState.enemy.y - 60, gameState.enemy.hp, gameState.enemy.maxHp, '#f44336');
+
+        // Draw projectiles with enhanced visibility
+        gameState.projectiles.forEach(proj => {
+            const color1 = proj.owner === 'player' ? '#FF6B6B' : '#4ECDC4';
+            const color2 = proj.owner === 'player' ? '#FFE66D' : '#45B7D1';
+
+            // Outer glow
+            ctx.fillStyle = color1;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color1;
+            ctx.beginPath();
+            ctx.arc(proj.x, proj.y, proj.size + 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner core
+            ctx.fillStyle = color2;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = color2;
+            ctx.beginPath();
+            ctx.arc(proj.x, proj.y, proj.size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Reset shadow
+            ctx.shadowBlur = 0;
+        });
+
+        // Update UI
+        document.getElementById('playerHP').textContent = Math.max(0, gameState.player.hp);
+        document.getElementById('enemyHP').textContent = Math.max(0, gameState.enemy.hp);
+    }
+
+    function drawHealthBar(x, y, hp, maxHp, color) {
+        const width = 80;
+        const height = 10;
+        const healthPercent = Math.max(0, hp / maxHp);
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(x, y, width, height);
+
+        // Health
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, width * healthPercent, height);
+
+        // Border
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+    }
+
+    // Game loop
+    function gameLoop(currentTime) {
+        if (!gameState.gameRunning) return;
+
+        gameState.gameTime = currentTime;
+        updateEnemyAI();
+        updateProjectiles();
+        render();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // End game
+    function endGame(message) {
+        gameState.gameRunning = false;
+        document.getElementById('gameOverText').textContent = message;
+        document.getElementById('gameOver').style.display = 'block';
+
+        // Play game over sound
+        playGameOverSound();
+    }
+
+    function playGameOverSound() {
+        const audio = new Audio('gameOver.mp3');
+        audio.volume = 0.5; // Set volume to 50%
+        audio.play().catch(e => {
+            console.log('Game over audio failed to play:', e);
+            // Fallback to synthetic sound if file doesn't load
+            playFallbackGameOverSound();
+        });
+    }
+
+    function playFallbackGameOverSound() {
+        // === SYNTHETIC SOUND CODE STARTS HERE ===
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        // Dramatic descending game over sound
+        oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 1.5);
+        oscillator.type = 'triangle';
+
+        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.5);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 1.5);
+        // === SYNTHETIC SOUND CODE ENDS HERE ===
+    }
+
+    // Restart game
+    document.getElementById('restartBtn').addEventListener('click', () => {
+        gameState = {
+            player: {
+                x: 120,
+                y: canvas.height / 2,
+                hp: 100,
+                maxHp: 100,
+                isShielding: false,
+                lastShot: 0,
+                shootCooldown: 500
+            },
+            enemy: {
+                x: canvas.width - 120,
+                y: canvas.height / 2,
+                hp: 100,
+                maxHp: 100,
+                isShielding: false,
+                lastShot: 0,
+                shootCooldown: 1200,
+                nextAction: 0,
+                actionTimer: 0,
+                playerShieldStartTime: 0
+            },
+            projectiles: [],
+            gameRunning: true,
+            gameTime: 0
+        };
+
+        document.getElementById('gameOver').style.display = 'none';
+        shieldBtn.classList.remove('pressed');
+        requestAnimationFrame(gameLoop);
+    });
+
+    // Start the game
+    requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
